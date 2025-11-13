@@ -193,6 +193,21 @@ enum PriceSource {
 }
 
 // ==========================================
+// User 相关枚举
+// ==========================================
+enum UserRole {
+  USER          // 普通用户
+  ADMIN         // 管理员
+}
+
+enum UserStatus {
+  ACTIVE        // 激活
+  INACTIVE      // 未激活
+  SUSPENDED     // 暂停
+  BANNED        // 封禁
+}
+
+// ==========================================
 // User（用户）
 // ==========================================
 model User {
@@ -214,8 +229,11 @@ model User {
   wechatOpenId  String? @unique
   wechatUnionId String? @unique
 
-  // 余额
-  balance     Decimal  @db.Decimal(10, 2) @default(0.00)
+  // 余额和额度
+  balance     Decimal  @db.Decimal(10, 2) @default(0.00)   // 账户余额
+  freeQuota   Decimal  @db.Decimal(10, 2) @default(0.00)   // 免费额度
+  totalSpent  Decimal  @db.Decimal(10, 2) @default(0.00)   // 累计消费
+  totalTokens BigInt   @default(0)                          // 累计 Token 数
 
   // 推荐系统
   inviteCode  String   @unique        // 邀请码
@@ -223,7 +241,11 @@ model User {
   inviter     User?    @relation("UserInvites", fields: [invitedBy], references: [id])
   invitees    User[]   @relation("UserInvites")
 
+  // 角色
+  role        UserRole    @default(USER)
+
   // 状态
+  status      UserStatus  @default(ACTIVE)
   isActive    Boolean  @default(true)
   isBanned    Boolean  @default(false)
   banReason   String?

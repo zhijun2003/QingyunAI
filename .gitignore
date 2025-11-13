@@ -72,7 +72,10 @@ coverage/
 *~
 .DS_Store
 Thumbs.db
-.claude/
+.claude
+.develop
+.husky
+
 
 # =========================================
 # 数据库

@@ -1,26 +1,32 @@
 // https://nuxt.com/docs/api/configuration/nuxt-config
+import { fileURLToPath } from 'node:url'
+import { dirname, resolve } from 'node:path'
+
+const __filename = fileURLToPath(import.meta.url)
+const __dirname = dirname(__filename)
+
 export default defineNuxtConfig({
   compatibilityDate: '2025-07-15',
 
   devtools: { enabled: true },
 
-  // Monorepo 别名配置
+  // Monorepo 别名配置（使用绝对路径）
   alias: {
-    '@qingyun/database': '../packages/database/src',
-    '@qingyun/ai-runtime': '../packages/ai-runtime/src',
-    '@qingyun/billing': '../packages/billing/src',
-    '@qingyun/constants': '../packages/constants/src',
-    '@qingyun/types': '../packages/types/src',
+    '@qingyun/database': resolve(__dirname, './packages/database/src'),
+    '@qingyun/ai-runtime': resolve(__dirname, './packages/ai-runtime/src'),
+    '@qingyun/billing': resolve(__dirname, './packages/billing/src'),
+    '@qingyun/constants': resolve(__dirname, './packages/constants/src'),
+    '@qingyun/types': resolve(__dirname, './packages/types/src'),
   },
 
-  // TypeScript 配置
+  // TypeScript 配置（暂时禁用 typeCheck，避免开发时卡顿）
   typescript: {
     strict: true,
-    typeCheck: true,
+    typeCheck: false,  // 改为 false，使用 pnpm typecheck 手动检查
   },
 
   // 模块
-  modules: [],
+  modules: ['@pinia/nuxt', '@vueuse/nuxt'],
 
   // 实验性功能
   experimental: {

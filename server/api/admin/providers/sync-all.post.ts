@@ -7,7 +7,7 @@
 // Author: zhijun2003 <zhijun2003@foxmail.com>
 // ==========================================
 
-import { syncAllProviders } from '~/server/services/model-sync.service'
+import { syncAllProviders } from '../../../services/model-sync.service'
 
 export default defineEventHandler(async (event) => {
   try {

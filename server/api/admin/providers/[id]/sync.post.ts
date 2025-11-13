@@ -7,7 +7,7 @@
 // Author: zhijun2003 <zhijun2003@foxmail.com>
 // ==========================================
 
-import { syncProviderModels } from '~/server/services/model-sync.service'
+import { syncProviderModels } from '../../../../services/model-sync.service'
 
 export default defineEventHandler(async (event) => {
   const id = getRouterParam(event, 'id')

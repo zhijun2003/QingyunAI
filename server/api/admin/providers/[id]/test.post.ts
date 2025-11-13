@@ -7,7 +7,7 @@
 // Author: zhijun2003 <zhijun2003@foxmail.com>
 // ==========================================
 
-import { testProviderConnection } from '~/server/services/model-sync.service'
+import { testProviderConnection } from '../../../../services/model-sync.service'
 
 export default defineEventHandler(async (event) => {
   const id = getRouterParam(event, 'id')
