@@ -1,0 +1,32 @@
+{
+  "compilerOptions": {
+    "target": "ESNext",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "lib": ["ESNext", "DOM", "DOM.Iterable"],
+    "jsx": "preserve",
+    "strict": true,
+    "noImplicitAny": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "baseUrl": ".",
+    "paths": {
+      "~/*": ["./*"],
+      "@/*": ["./*"],
+      "@qingyun/database": ["./packages/database/src"],
+      "@qingyun/database/*": ["./packages/database/src/*"],
+      "@qingyun/ai-runtime": ["./packages/ai-runtime/src"],
+      "@qingyun/ai-runtime/*": ["./packages/ai-runtime/src/*"],
+      "@qingyun/billing": ["./packages/billing/src"],
+      "@qingyun/billing/*": ["./packages/billing/src/*"],
+      "@qingyun/constants": ["./packages/constants/src"],
+      "@qingyun/constants/*": ["./packages/constants/src/*"],
+      "@qingyun/types": ["./packages/types/src"],
+      "@qingyun/types/*": ["./packages/types/src/*"]
+    }
+  },
+  "extends": "./.nuxt/tsconfig.json"
+}

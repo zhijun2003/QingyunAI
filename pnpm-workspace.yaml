@@ -1,0 +1,13 @@
+# pnpm Monorepo工作空间配置
+
+packages:
+  # 核心包
+  - 'packages/*'
+
+  # Nuxt应用
+  - 'app'
+
+  # 排除测试和构建输出
+  - '!**/test/**'
+  - '!**/dist/**'
+  - '!**/.nuxt/**'

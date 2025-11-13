@@ -1,0 +1,623 @@
+// ==========================================
+// 清云AI - Prisma Schema
+// ==========================================
+//
+// 最终优化架构设计
+// - Provider-Model 两层架构
+// - 支持 API 密钥轮询
+// - 自动同步模型和价格
+// - 管理员自定义分组
+//
+// Author: zhijun2003 <zhijun2003@foxmail.com>
+// GitHub: https://github.com/zhijun2003/QingyunAI
+//
+// ==========================================
+
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["postgresqlExtensions"]
+}
+
+datasource db {
+  provider   = "postgresql"
+  url        = env("DATABASE_URL")
+  extensions = [pgvector(map: "vector", schema: "public")]
+}
+
+// ==========================================
+// Provider（API 提供商）
+// ==========================================
+model Provider {
+  id          String   @id @default(cuid())
+
+  // 基本信息
+  name        String   @unique        // "openai-official", "yunwu-ai"
+  displayName String                  // "OpenAI 官方", "云雾AI"
+  description String?  @db.Text
+  logo        String?
+  website     String?
+
+  // 提供商类型
+  type        ProviderType           // OPENAI, GEMINI, MIDJOURNEY, etc.
+  baseUrl     String                 // API 地址
+
+  // 自动拉取配置
+  autoSync        Boolean  @default(false)    // 自动同步模型
+  syncInterval    Int?     @default(3600)     // 同步间隔（秒）
+  lastSyncAt      DateTime?                   // 上次同步时间
+  lastSyncStatus  String?                     // 上次同步状态
+
+  // 状态
+  isActive    Boolean  @default(true)
+  sortOrder   Int      @default(0)
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // 关联
+  apiKeys     ProviderApiKey[]        // 一对多：支持多个密钥轮询
+  models      Model[]
+
+  @@index([type, isActive])
+}
+
+enum ProviderType {
+  OPENAI               // OpenAI 格式（官方 + 兼容接口）
+  GEMINI               // Google Gemini
+  ANTHROPIC            // Anthropic Claude
+  DEEPSEEK             // DeepSeek
+  MIDJOURNEY           // Midjourney 绘图（特殊格式）
+  STABLE_DIFFUSION     // Stable Diffusion（特殊格式）
+  KELING               // 可灵视频（特殊格式）
+  JIMENG               // 即梦视频（特殊格式）
+  RUNWAY               // Runway 视频（特殊格式）
+  SUNO                 // Suno 音乐（特殊格式）
+  CUSTOM               // 自定义接口
+}
+
+// ==========================================
+// ProviderApiKey（API 密钥，支持轮询）
+// ==========================================
+model ProviderApiKey {
+  id          String   @id @default(cuid())
+
+  // 关联 Provider
+  providerId  String
+  provider    Provider @relation(fields: [providerId], references: [id], onDelete: Cascade)
+
+  // 密钥信息
+  name        String                  // 密钥名称（便于识别）
+  keyEncrypted String                 // AES-256 加密后的密钥
+  keyIv       String                  // 加密 IV
+
+  // 轮询配置
+  weight      Int      @default(1)    // 权重（用于加权轮询）
+  priority    Int      @default(0)    // 优先级（数字越小优先级越高）
+
+  // 限额配置
+  dailyLimit  Int?                    // 每日请求限额
+  dailyUsed   Int      @default(0)    // 今日已使用
+  monthlyLimit Int?                   // 每月限额
+  monthlyUsed  Int     @default(0)    // 本月已使用
+
+  lastResetAt DateTime @default(now())  // 上次重置时间
+
+  // 状态
+  isActive    Boolean  @default(true)
+  lastUsedAt  DateTime?               // 上次使用时间
+  errorCount  Int      @default(0)    // 错误计数（连续错误会自动禁用）
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([providerId, isActive, priority])
+  @@index([providerId, weight])
+}
+
+// ==========================================
+// Model（模型实例）
+// ==========================================
+model Model {
+  id          String   @id @default(cuid())
+
+  // 关联 Provider
+  providerId  String
+  provider    Provider @relation(fields: [providerId], references: [id], onDelete: Cascade)
+
+  // 模型基本信息
+  modelName   String               // "gpt-4o", "claude-3-5-sonnet"
+  displayName String               // "GPT-4o", "Claude 3.5 Sonnet"
+  description String?  @db.Text
+
+  // 分组信息（管理员可自定义）
+  groupName   String   @default("未分组")  // "对话模型", "绘图模型", "视频生成"
+  category    ModelCategory?       // 辅助分类（可选）
+
+  // 模型能力
+  maxTokens       Int?
+  contextWindow   Int?
+  supportStream   Boolean @default(true)
+  supportVision   Boolean @default(false)
+  supportFunction Boolean @default(false)
+
+  // 计费配置
+  billingType     BillingType          // TOKEN, CALL, SECOND
+  inputPrice      Decimal?  @db.Decimal(10, 6)   // 输入价格
+  outputPrice     Decimal?  @db.Decimal(10, 6)   // 输出价格
+  perCallPrice    Decimal?  @db.Decimal(10, 2)   // 按次价格
+  perSecondPrice  Decimal?  @db.Decimal(10, 4)   // 按秒价格
+
+  // 价格管理
+  priceSource     PriceSource @default(MANUAL)
+  upstreamPrice   Decimal?  @db.Decimal(10, 6)   // 上游价格
+  priceMarkup     Decimal?  @db.Decimal(3, 2) @default(1.0)  // 加价倍率
+
+  // 状态
+  isActive    Boolean  @default(true)
+  sortOrder   Int      @default(0)
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  lastSyncAt  DateTime?               // 上次同步时间
+
+  // 关联
+  conversations Conversation[]
+  messages      Message[]
+  usageLogs     UsageLog[]
+
+  @@unique([providerId, modelName])
+  @@index([groupName, isActive, sortOrder])
+  @@index([providerId])
+  @@index([category])
+}
+
+enum ModelCategory {
+  CHAT         // 对话
+  IMAGE        // 图像
+  VIDEO        // 视频
+  AUDIO        // 音频
+  MUSIC        // 音乐
+  EMBEDDING    // 嵌入
+}
+
+enum BillingType {
+  TOKEN        // 按 Token
+  CALL         // 按次
+  SECOND       // 按秒
+}
+
+enum PriceSource {
+  MANUAL       // 手动设置
+  AUTO         // 自动同步
+  UPSTREAM     // 上游 + 加价
+}
+
+// ==========================================
+// User（用户）
+// ==========================================
+model User {
+  id          String   @id @default(cuid())
+
+  // 基本信息
+  username    String?  @unique
+  email       String?  @unique
+  phone       String?  @unique
+  avatar      String?
+  nickname    String?
+
+  // 认证
+  passwordHash String?              // bcrypt 哈希
+  emailVerified Boolean @default(false)
+  phoneVerified Boolean @default(false)
+
+  // 微信绑定
+  wechatOpenId  String? @unique
+  wechatUnionId String? @unique
+
+  // 余额
+  balance     Decimal  @db.Decimal(10, 2) @default(0.00)
+
+  // 推荐系统
+  inviteCode  String   @unique        // 邀请码
+  invitedBy   String?                // 被谁邀请
+  inviter     User?    @relation("UserInvites", fields: [invitedBy], references: [id])
+  invitees    User[]   @relation("UserInvites")
+
+  // 状态
+  isActive    Boolean  @default(true)
+  isBanned    Boolean  @default(false)
+  banReason   String?
+  bannedAt    DateTime?
+
+  // 最后登录
+  lastLoginAt DateTime?
+  lastLoginIp String?
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // 关联
+  sessions      Session[]
+  conversations Conversation[]
+  messages      Message[]
+  usageLogs     UsageLog[]
+  transactions  Transaction[]
+  knowledgeBases KnowledgeBase[]
+  agents        Agent[]
+  attachments   Attachment[]
+
+  @@index([email])
+  @@index([phone])
+  @@index([inviteCode])
+}
+
+// ==========================================
+// Session（会话）
+// ==========================================
+model Session {
+  id          String   @id @default(cuid())
+
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  token       String   @unique
+  refreshToken String? @unique
+
+  userAgent   String?
+  ip          String?
+
+  expiresAt   DateTime
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([userId])
+  @@index([token])
+}
+
+// ==========================================
+// Conversation（对话）
+// ==========================================
+model Conversation {
+  id          String   @id @default(cuid())
+
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  modelId     String?
+  model       Model?   @relation(fields: [modelId], references: [id], onDelete: SetNull)
+
+  title       String   @default("新对话")
+
+  // 系统提示词
+  systemPrompt String? @db.Text
+
+  // 分组和收藏
+  folder      String?              // 文件夹/分组
+  isPinned    Boolean  @default(false)
+  isArchived  Boolean  @default(false)
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // 关联
+  messages    Message[]
+
+  @@index([userId, createdAt])
+  @@index([userId, isPinned])
+}
+
+// ==========================================
+// Message（消息）
+// ==========================================
+model Message {
+  id          String   @id @default(cuid())
+
+  conversationId String
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  modelId     String?
+  model       Model?   @relation(fields: [modelId], references: [id], onDelete: SetNull)
+
+  // 消息内容
+  role        MessageRole
+  content     String   @db.Text
+
+  // Token 统计
+  inputTokens  Int?
+  outputTokens Int?
+
+  // 成本
+  cost        Decimal? @db.Decimal(10, 6)
+
+  // 附件（图片、文件等）
+  attachments Json?
+
+  // RAG 引用
+  citations   Json?
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([conversationId, createdAt])
+  @@index([userId])
+}
+
+enum MessageRole {
+  SYSTEM
+  USER
+  ASSISTANT
+  FUNCTION
+}
+
+// ==========================================
+// Attachment（附件管理）
+// ==========================================
+model Attachment {
+  id          String   @id @default(cuid())
+
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // 文件信息
+  filename    String                  // 原始文件名
+  fileSize    Int                     // 文件大小（字节）
+  mimeType    String                  // MIME 类型
+
+  // 存储信息
+  storageType StorageType             // 存储类型
+  storagePath String                  // 存储路径
+  url         String                  // 访问 URL
+  thumbnailUrl String?                // 缩略图 URL（图片）
+
+  // 元数据
+  width       Int?                    // 图片宽度
+  height      Int?                    // 图片高度
+  duration    Int?                    // 视频/音频时长（秒）
+
+  // 关联
+  messageId   String?                 // 关联的消息 ID
+
+  // 状态
+  uploadStatus String   @default("completed")  // pending, uploading, completed, failed
+  isPublic    Boolean  @default(false)
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([userId, createdAt])
+  @@index([messageId])
+  @@index([storageType])
+}
+
+enum StorageType {
+  LOCAL          // 本地存储
+  MINIO          // MinIO 对象存储
+  COS            // 腾讯云 COS
+  OSS            // 阿里云 OSS
+  S3             // AWS S3
+  IMGBED         // 免费图床（仅图片）
+}
+
+// ==========================================
+// UsageLog（用量日志）
+// ==========================================
+model UsageLog {
+  id          String   @id @default(cuid())
+
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  modelId     String
+  model       Model    @relation(fields: [modelId], references: [id], onDelete: Cascade)
+
+  // 用量统计
+  inputTokens  Int      @default(0)
+  outputTokens Int      @default(0)
+  totalTokens  Int      @default(0)
+
+  // 计费
+  inputCost    Decimal  @db.Decimal(10, 6)
+  outputCost   Decimal  @db.Decimal(10, 6)
+  totalCost    Decimal  @db.Decimal(10, 6)
+
+  // 其他信息
+  requestType  String?              // "chat", "image", "video"
+  metadata     Json?
+
+  createdAt   DateTime @default(now())
+
+  @@index([userId, createdAt])
+  @@index([modelId, createdAt])
+}
+
+// ==========================================
+// Transaction（交易记录）
+// ==========================================
+model Transaction {
+  id          String   @id @default(cuid())
+
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // 交易类型
+  type        TransactionType
+  amount      Decimal  @db.Decimal(10, 2)
+
+  // 余额变化
+  balanceBefore Decimal @db.Decimal(10, 2)
+  balanceAfter  Decimal @db.Decimal(10, 2)
+
+  // 描述
+  description String?
+
+  // 支付信息（充值时）
+  paymentMethod String?              // "alipay", "wechat"
+  paymentOrderId String?  @unique
+  paymentStatus  String?              // "pending", "success", "failed"
+
+  // 其他信息
+  metadata    Json?
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([userId, createdAt])
+  @@index([type])
+}
+
+enum TransactionType {
+  RECHARGE         // 充值
+  CONSUMPTION      // 消费
+  REFUND           // 退款
+  GIFT_REGISTER    // 注册赠送
+  GIFT_SIGNIN      // 签到赠送
+  GIFT_REFERRAL    // 推荐赠送
+  ADJUSTMENT       // 管理员调整
+}
+
+// ==========================================
+// KnowledgeBase（知识库）
+// ==========================================
+model KnowledgeBase {
+  id          String   @id @default(cuid())
+
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  name        String
+  description String?  @db.Text
+  icon        String?
+
+  // 嵌入模型
+  embeddingModel String @default("text-embedding-3-small")
+
+  // 统计
+  documentCount Int    @default(0)
+  chunkCount    Int    @default(0)
+
+  isActive    Boolean  @default(true)
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // 关联
+  documents   Document[]
+
+  @@index([userId])
+}
+
+// ==========================================
+// Document（文档）
+// ==========================================
+model Document {
+  id          String   @id @default(cuid())
+
+  knowledgeBaseId String
+  knowledgeBase   KnowledgeBase @relation(fields: [knowledgeBaseId], references: [id], onDelete: Cascade)
+
+  filename    String
+  fileSize    Int
+  fileType    String
+  fileUrl     String
+
+  // 解析状态
+  parseStatus String   @default("pending")  // pending, processing, success, failed
+  parseError  String?  @db.Text
+
+  // 统计
+  chunkCount  Int      @default(0)
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // 关联
+  chunks      DocumentChunk[]
+
+  @@index([knowledgeBaseId])
+}
+
+// ==========================================
+// DocumentChunk（文档分块）
+// ==========================================
+model DocumentChunk {
+  id          String   @id @default(cuid())
+
+  documentId  String
+  document    Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  content     String   @db.Text
+  chunkIndex  Int
+
+  // 向量嵌入（使用 pgvector）
+  embedding   Unsupported("vector(1536)")?
+
+  // 元数据
+  metadata    Json?
+
+  createdAt   DateTime @default(now())
+
+  @@index([documentId])
+}
+
+// ==========================================
+// Agent（智能体）
+// ==========================================
+model Agent {
+  id          String   @id @default(cuid())
+
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  name        String
+  description String?  @db.Text
+  avatar      String?
+
+  // 系统提示词
+  systemPrompt String  @db.Text
+
+  // 关联模型
+  defaultModelId String?
+
+  // 工具和能力
+  enabledTools   Json?              // ["web_search", "calculator"]
+  knowledgeBases Json?              // 关联的知识库 IDs
+
+  // 发布状态
+  isPublic    Boolean  @default(false)
+  isTemplate  Boolean  @default(false)
+
+  // 统计
+  usageCount  Int      @default(0)
+  likeCount   Int      @default(0)
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([userId])
+  @@index([isPublic, isTemplate])
+}
+
+// ==========================================
+// SystemConfig（系统配置）
+// ==========================================
+model SystemConfig {
+  id          String   @id @default(cuid())
+
+  key         String   @unique
+  value       String   @db.Text
+  description String?  @db.Text
+
+  // 配置分组
+  group       String   @default("general")
+
+  // 值类型
+  valueType   String   @default("string")  // string, number, boolean, json
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([group])
+}
