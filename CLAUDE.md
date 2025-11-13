@@ -9,6 +9,7 @@
 - [数据库设计](#数据库设计)
 - [技术栈](#技术栈)
 - [项目结构](#项目结构)
+- [管理后台 API](#管理后台-api)
 - [开发规范](#开发规范)
 - [部署指南](#部署指南)
 
@@ -373,6 +374,329 @@ QingyunAI/
 ├── README.md              # 项目说明 ✅
 └── package.json           # 项目配置
 ```
+
+---
+
+## 🔌 管理后台 API
+
+### Provider 管理
+
+#### 创建 Provider
+```http
+POST /api/admin/providers
+Content-Type: application/json
+
+{
+  "name": "openai-official",
+  "displayName": "OpenAI 官方",
+  "type": "OPENAI",
+  "baseUrl": "https://api.openai.com",
+  "autoSync": true,
+  "syncInterval": 3600,
+  "apiKeys": [
+    {
+      "name": "主密钥",
+      "key": "sk-xxxxx",
+      "weight": 10,
+      "priority": 0,
+      "dailyLimit": 1000000
+    }
+  ]
+}
+```
+
+#### 获取 Provider 列表
+```http
+GET /api/admin/providers?type=OPENAI&isActive=true&search=openai
+```
+
+**返回示例**：
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "id": "xxx",
+      "name": "openai-official",
+      "displayName": "OpenAI 官方",
+      "type": "OPENAI",
+      "isActive": true,
+      "stats": {
+        "totalKeys": 3,
+        "activeKeys": 2,
+        "totalModels": 15,
+        "activeModels": 12
+      }
+    }
+  ]
+}
+```
+
+#### 获取单个 Provider
+```http
+GET /api/admin/providers/:id
+```
+
+**返回包含**：
+- Provider 基本信息
+- 所有 API 密钥列表（不含加密内容）
+- 所有模型列表
+
+#### 更新 Provider
+```http
+PUT /api/admin/providers/:id
+Content-Type: application/json
+
+{
+  "displayName": "OpenAI 官方 API",
+  "isActive": true,
+  "autoSync": true
+}
+```
+
+#### 删除 Provider
+```http
+DELETE /api/admin/providers/:id
+```
+
+**注意**：
+- 如果模型已被使用，将禁止删除
+- 会级联删除所有关联的 API 密钥和模型
+
+#### 测试连接
+```http
+POST /api/admin/providers/:id/test
+```
+
+#### 同步模型
+```http
+POST /api/admin/providers/:id/sync
+```
+
+**返回示例**：
+```json
+{
+  "success": true,
+  "message": "同步完成：新增 5 个，更新 8 个，跳过 2 个",
+  "data": {
+    "created": 5,
+    "updated": 8,
+    "skipped": 2,
+    "total": 15
+  }
+}
+```
+
+#### 批量同步所有 Provider
+```http
+POST /api/admin/providers/sync-all
+```
+
+---
+
+### API 密钥管理
+
+#### 添加 API 密钥
+```http
+POST /api/admin/providers/:id/keys
+Content-Type: application/json
+
+{
+  "name": "备用密钥",
+  "key": "sk-xxxxx",
+  "weight": 5,
+  "priority": 1,
+  "dailyLimit": 500000,
+  "monthlyLimit": 10000000,
+  "isActive": true
+}
+```
+
+#### 获取密钥列表
+```http
+GET /api/admin/providers/:id/keys?isActive=true
+```
+
+**返回示例**：
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "id": "xxx",
+      "name": "主密钥",
+      "weight": 10,
+      "priority": 0,
+      "dailyUsed": 85000,
+      "dailyLimit": 1000000,
+      "status": "normal",
+      "usageRate": {
+        "daily": "8.50",
+        "monthly": "12.30"
+      }
+    }
+  ],
+  "stats": {
+    "total": 3,
+    "active": 2,
+    "available": 2,
+    "error": 0
+  }
+}
+```
+
+**密钥状态说明**：
+- `normal`: 正常可用
+- `disabled`: 已禁用
+- `error`: 错误过多（errorCount >= 5）
+- `daily_limit`: 达到日限额
+- `monthly_limit`: 达到月限额
+
+#### 更新密钥
+```http
+PUT /api/admin/providers/:id/keys/:keyId
+Content-Type: application/json
+
+{
+  "name": "主密钥（已升级）",
+  "weight": 15,
+  "dailyLimit": 2000000,
+  "isActive": true
+}
+```
+
+**注意**：可选传入 `key` 字段更新密钥内容
+
+#### 删除密钥
+```http
+DELETE /api/admin/providers/:id/keys/:keyId
+```
+
+**注意**：不允许删除最后一个可用的密钥
+
+#### 重置用量统计
+```http
+POST /api/admin/providers/:id/keys/:keyId/reset
+Content-Type: application/json
+
+{
+  "resetType": "all"  // all | daily | monthly | error
+}
+```
+
+---
+
+### 模型管理
+
+#### 获取模型列表
+```http
+GET /api/admin/models?providerId=xxx&category=CHAT&isActive=true&search=gpt
+```
+
+**筛选参数**：
+- `providerId`: 按 Provider 筛选
+- `providerType`: 按 Provider 类型筛选（OPENAI, ANTHROPIC 等）
+- `category`: 按类别筛选（CHAT, IMAGE, AUDIO 等）
+- `groupName`: 按分组筛选
+- `isActive`: 按状态筛选
+- `search`: 搜索模型名称或显示名称
+
+**返回示例**：
+```json
+{
+  "success": true,
+  "data": {
+    "models": [...],
+    "grouped": {
+      "对话模型": [...],
+      "绘图模型": [...]
+    }
+  },
+  "stats": {
+    "total": 42,
+    "active": 38,
+    "byCategory": {
+      "CHAT": 25,
+      "IMAGE": 10,
+      "AUDIO": 7
+    },
+    "byGroup": {
+      "对话模型": 25,
+      "绘图模型": 10
+    }
+  }
+}
+```
+
+#### 获取单个模型
+```http
+GET /api/admin/models/:id
+```
+
+**返回包含**：
+- 模型基本信息
+- Provider 信息
+- 价格详情（含加价率）
+- 使用统计（最近 30 天）
+
+#### 更新模型
+```http
+PUT /api/admin/models/:id
+Content-Type: application/json
+
+{
+  "displayName": "GPT-4o（最新）",
+  "groupName": "旗舰模型",
+  "description": "OpenAI 最新旗舰模型",
+  "isActive": true,
+  "sortOrder": 1
+}
+```
+
+#### 更新模型价格
+```http
+PUT /api/admin/models/:id/pricing
+Content-Type: application/json
+
+{
+  "priceSource": "MANUAL",
+  "billingType": "TOKEN",
+  "inputPrice": 0.03,
+  "outputPrice": 0.06
+}
+```
+
+**价格来源类型**：
+1. **MANUAL**（手动设置）
+   ```json
+   {
+     "priceSource": "MANUAL",
+     "billingType": "TOKEN",
+     "inputPrice": 0.03,
+     "outputPrice": 0.06
+   }
+   ```
+
+2. **AUTO**（自动同步）
+   ```json
+   {
+     "priceSource": "AUTO"
+   }
+   ```
+   价格由同步服务自动更新
+
+3. **UPSTREAM**（上游价格 + 加价）
+   ```json
+   {
+     "priceSource": "UPSTREAM",
+     "markupRate": 20
+   }
+   ```
+   基于 upstreamPrice 加价 20%
+
+**计费类型**：
+- `TOKEN`: 按 Token 计费（inputPrice + outputPrice）
+- `PER_CALL`: 按次计费（perCallPrice）
 
 ---
 
