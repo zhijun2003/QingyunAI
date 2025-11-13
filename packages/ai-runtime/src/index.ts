@@ -15,5 +15,9 @@
 export { ApiKeyPool, apiKeyPool } from './utils/api-key-pool'
 export { encrypt, decrypt, encryptSimple, decryptSimple, testEncryption } from './utils/encryption'
 
+// Export adapters
+export { createAdapter, isProviderSupported, getSupportedProviderTypes, getPendingProviderTypes } from './adapters'
+export { OpenAICompatibleAdapter } from './adapters/openai-compatible'
+
 // Export types
 export * from './types'
