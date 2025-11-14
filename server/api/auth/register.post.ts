@@ -1,5 +1,5 @@
 // ==========================================
-// 用户注册 API
+// 用户注册 API (使用 nuxt-auth-utils)
 // ==========================================
 //
 // POST /api/auth/register
@@ -10,14 +10,14 @@
 // ==========================================
 
 import { prisma } from '@qingyun/database'
-import { hashPassword, generateToken } from '#imports'
+import { hashPassword } from '#imports'
 
 export default defineEventHandler(async (event) => {
   try {
     const body = await readBody(event)
 
     // 验证必填字段
-    const { username, password, email, phone, nickname } = body
+    const { username, password, email, phone, displayName } = body
 
     if (!password || password.length < 6) {
       throw createError({
@@ -86,15 +86,28 @@ export default defineEventHandler(async (event) => {
         password: hashedPassword,
         email,
         phone,
-        nickname: nickname || username || '新用户',
+        displayName: displayName || username || '新用户',
         role: 'USER',
         balance: 0,
         freeQuota: 100000 // 新用户赠送 10 万 Tokens
       }
     })
 
-    // 生成 Token
-    const token = generateToken(user.id, user.role)
+    // 使用 nuxt-auth-utils 设置用户会话
+    await setUserSession(event, {
+      user: {
+        userId: user.id,
+        username: user.username,
+        email: user.email,
+        phone: user.phone,
+        displayName: user.displayName,
+        avatar: user.avatar,
+        role: user.role,
+        status: user.status,
+        balance: user.balance.toNumber(),
+        freeQuota: user.freeQuota.toNumber(),
+      }
+    })
 
     // 返回用户信息（不含密码）
     const { password: _, ...userWithoutPassword } = user
@@ -103,8 +116,11 @@ export default defineEventHandler(async (event) => {
       success: true,
       message: '注册成功',
       data: {
-        user: userWithoutPassword,
-        token
+        user: {
+          ...userWithoutPassword,
+          balance: user.balance.toNumber(),
+          freeQuota: user.freeQuota.toNumber(),
+        }
       }
     }
   } catch (error: any) {

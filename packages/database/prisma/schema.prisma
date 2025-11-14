@@ -267,6 +267,10 @@ model User {
   knowledgeBases KnowledgeBase[]
   agents        Agent[]
   attachments   Attachment[]
+  userCoupons   UserCoupon[]
+  checkIns      CheckIn[]
+  applicationAccess UserApplicationAccess[]
+  rechargeOrders RechargeOrder[]
 
   @@index([email])
   @@index([phone])
@@ -445,6 +449,10 @@ model UsageLog {
   outputCost   Decimal  @db.Decimal(10, 6)
   totalCost    Decimal  @db.Decimal(10, 6)
 
+  // 关联信息
+  conversationId String?
+  messageId     String?
+
   // 其他信息
   requestType  String?              // "chat", "image", "video"
   metadata     Json?
@@ -453,6 +461,7 @@ model UsageLog {
 
   @@index([userId, createdAt])
   @@index([modelId, createdAt])
+  @@index([conversationId])
 }
 
 // ==========================================
@@ -475,6 +484,9 @@ model Transaction {
   // 描述
   description String?
 
+  // 关联信息
+  relatedId   String?              // 关联的消息ID、订单ID等
+
   // 支付信息（充值时）
   paymentMethod String?              // "alipay", "wechat"
   paymentOrderId String?  @unique
@@ -488,6 +500,7 @@ model Transaction {
 
   @@index([userId, createdAt])
   @@index([type])
+  @@index([relatedId])
 }
 
 enum TransactionType {
@@ -643,3 +656,281 @@ model SystemConfig {
 
   @@index([group])
 }
+
+// ==========================================
+// RechargePackage（充值套餐）
+// ==========================================
+model RechargePackage {
+  id          String   @id @default(cuid())
+
+  name        String              // 套餐名称
+  description String?             // 套餐描述
+  amount      Decimal  @db.Decimal(10, 2)   // 充值金额（元）
+  giveAmount  Decimal  @db.Decimal(10, 2) @default(0)  // 赠送金额（元）
+
+  // 排序和状态
+  sort        Int      @default(0)
+  isActive    Boolean  @default(true)
+  isHot       Boolean  @default(false)    // 热门标签
+  isRecommend Boolean  @default(false)    // 推荐标签
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // 关联
+  orders      RechargeOrder[]
+
+  @@index([isActive, sort])
+}
+
+// ==========================================
+// Coupon（优惠券）
+// ==========================================
+model Coupon {
+  id          String   @id @default(cuid())
+
+  code        String   @unique         // 优惠码
+  name        String                   // 优惠券名称
+  description String?                  // 描述
+
+  // 优惠类型
+  type        CouponType              // FIXED 固定金额 / PERCENT 百分比
+  discount    Decimal  @db.Decimal(10, 2)  // 优惠金额或百分比
+
+  // 使用条件
+  minAmount   Decimal? @db.Decimal(10, 2)  // 最低消费金额
+  maxDiscount Decimal? @db.Decimal(10, 2)  // 最大优惠金额（百分比型）
+
+  // 有效期
+  startAt     DateTime?
+  expireAt    DateTime?
+
+  // 使用限制
+  totalLimit  Int?                    // 总发放数量
+  usedCount   Int      @default(0)    // 已使用次数
+  perUserLimit Int     @default(1)    // 每人限用次数
+
+  // 状态
+  isActive    Boolean  @default(true)
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  userCoupons UserCoupon[]
+
+  @@index([code])
+  @@index([isActive, expireAt])
+}
+
+enum CouponType {
+  FIXED         // 固定金额
+  PERCENT       // 百分比
+}
+
+// ==========================================
+// UserCoupon（用户优惠券）
+// ==========================================
+model UserCoupon {
+  id          String   @id @default(cuid())
+
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  couponId    String
+  coupon      Coupon   @relation(fields: [couponId], references: [id], onDelete: Cascade)
+
+  // 使用状态
+  isUsed      Boolean  @default(false)
+  usedAt      DateTime?
+  transactionId String?              // 关联的交易ID
+
+  createdAt   DateTime @default(now())
+
+  @@index([userId, isUsed])
+  @@index([couponId])
+}
+
+// ==========================================
+// RechargeOrder（充值订单）
+// ==========================================
+model RechargeOrder {
+  id          String   @id @default(cuid())
+
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  packageId   String?
+  package     RechargePackage? @relation(fields: [packageId], references: [id], onDelete: SetNull)
+
+  // 订单信息
+  orderNo     String   @unique              // 订单号
+  amount      Decimal  @db.Decimal(10, 2)   // 充值金额
+  giveAmount  Decimal  @db.Decimal(10, 2) @default(0)  // 赠送金额
+  totalAmount Decimal  @db.Decimal(10, 2)   // 实际到账金额
+
+  // 支付信息
+  paymentMethod   String                   // "alipay", "wechat"
+  paymentChannel  String?                  // "h5", "native", "app"
+  paymentOrderId  String?  @unique         // 第三方支付订单号
+
+  // 状态
+  status      OrderStatus  @default(PENDING)
+
+  // 支付详情
+  paidAt      DateTime?
+  notifyData  Json?                        // 回调数据（用于调试）
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  expireAt    DateTime?                    // 订单过期时间
+
+  @@index([userId, status])
+  @@index([orderNo])
+  @@index([paymentOrderId])
+  @@index([createdAt])
+}
+
+enum OrderStatus {
+  PENDING      // 待支付
+  PAID         // 已支付
+  CANCELLED    // 已取消
+  EXPIRED      // 已过期
+  REFUNDED     // 已退款
+}
+
+// ==========================================
+// Application（应用/插件）
+// ==========================================
+model Application {
+  id          String   @id @default(cuid())
+
+  // 基本信息
+  key         String   @unique          // "image-generation", "video-generation"
+  name        String                    // 应用名称
+  displayName String                    // 显示名称
+  description String?  @db.Text         // 应用描述
+  icon        String?                   // 图标 URL 或名称
+
+  // 分类
+  category    AppCategory               // 应用类别
+
+  // 插件信息
+  type        AppType  @default(BUILTIN)
+  version     String   @default("1.0.0")
+  author      String?
+
+  // 路由和UI
+  routePath   String                    // 路由路径 "/apps/image-generation"
+  componentPath String?                 // 组件路径（动态加载）
+  menuLabel   String                    // 菜单标签
+  menuIcon    String?                   // 菜单图标
+
+  // 排序
+  sortOrder   Int      @default(0)
+
+  // 依赖要求
+  requiredModels Json?                  // 所需的模型类别或ID
+  requiredConfig Json?                  // 所需的系统配置
+
+  // 状态控制
+  isEnabled   Boolean  @default(false)  // 是否启用（管理员控制）
+  isVisible   Boolean  @default(true)   // 是否在菜单中可见
+  isCore      Boolean  @default(false)  // 是否为核心应用（核心应用不可禁用）
+
+  // 权限
+  requiredRole UserRole @default(USER)  // 所需最低角色
+  maxUsagePerDay Int?                   // 每日使用限额
+
+  // 元数据
+  tags        String[]
+  metadata    Json?
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // 关联
+  userApps    UserApplicationAccess[]
+  usageLogs   ApplicationUsageLog[]
+
+  @@index([isEnabled, isVisible, sortOrder])
+  @@index([category])
+  @@index([type])
+}
+
+enum AppCategory {
+  CHAT              // 对话类
+  AGENT             // 智能体
+  GENERATION        // 生成类（图像、视频、音乐、PPT等）
+  ANALYSIS          // 分析类
+  PRODUCTIVITY      // 生产力工具
+  KNOWLEDGE         // 知识管理
+  OTHER             // 其他
+}
+
+enum AppType {
+  BUILTIN           // 内置应用
+  PLUGIN            // 外部插件
+  CUSTOM            // 自定义应用
+}
+
+// ==========================================
+// UserApplicationAccess（用户应用访问权限）
+// ==========================================
+model UserApplicationAccess {
+  id            String   @id @default(cuid())
+
+  userId        String
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  applicationId String
+  application   Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+
+  hasAccess     Boolean  @default(true)
+  expiresAt     DateTime?
+
+  createdAt     DateTime @default(now())
+
+  @@unique([userId, applicationId])
+  @@index([userId])
+}
+
+// ==========================================
+// ApplicationUsageLog（应用使用日志）
+// ==========================================
+model ApplicationUsageLog {
+  id            String   @id @default(cuid())
+
+  userId        String
+  applicationId String
+  application   Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+
+  action        String             // 操作类型："open", "generate", "export"
+  metadata      Json?              // 元数据
+  cost          Decimal? @db.Decimal(10, 6)  // 消耗成本
+
+  createdAt     DateTime @default(now())
+
+  @@index([userId, createdAt])
+  @@index([applicationId, createdAt])
+}
+
+// ==========================================
+// CheckIn（签到记录）
+// ==========================================
+model CheckIn {
+  id          String   @id @default(cuid())
+
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // 签到信息
+  checkInDate DateTime @default(now())  // 签到日期
+  continuous  Int      @default(1)       // 连续签到天数
+  reward      Decimal  @db.Decimal(10, 2) @default(0)  // 奖励金额
+
+  createdAt   DateTime @default(now())
+
+  @@unique([userId, checkInDate])
+  @@index([userId, checkInDate])
+}
+

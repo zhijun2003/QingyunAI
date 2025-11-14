@@ -1,5 +1,5 @@
 // ==========================================
-// 获取当前用户信息 API
+// 获取当前用户信息 API (使用 nuxt-auth-utils)
 // ==========================================
 //
 // GET /api/user/me
@@ -8,21 +8,28 @@
 // ==========================================
 
 import { prisma } from '@qingyun/database'
-import { getCurrentUser } from '#imports'
 
 export default defineEventHandler(async (event) => {
   try {
-    const currentUser = getCurrentUser(event)
+    // 使用 nuxt-auth-utils 获取当前用户会话
+    const session = await getUserSession(event)
 
-    // 获取完整用户信息
+    if (!session || !session.user) {
+      throw createError({
+        statusCode: 401,
+        message: '未登录'
+      })
+    }
+
+    // 获取最新的用户信息
     const user = await prisma.user.findUnique({
-      where: { id: currentUser.userId },
+      where: { id: session.user.userId },
       select: {
         id: true,
         username: true,
         email: true,
         phone: true,
-        nickname: true,
+        displayName: true,
         avatar: true,
         bio: true,
         role: true,
@@ -46,7 +53,13 @@ export default defineEventHandler(async (event) => {
 
     return {
       success: true,
-      data: user
+      data: {
+        ...user,
+        balance: user.balance.toNumber(),
+        freeQuota: user.freeQuota.toNumber(),
+        totalSpent: user.totalSpent.toNumber(),
+        totalTokens: user.totalTokens.toNumber(),
+      }
     }
   } catch (error: any) {
     if (error.statusCode) throw error

@@ -1,11 +1,12 @@
 // ==========================================
-// 用户状态管理 Store
+// 用户状态管理 Store (使用 nuxt-auth-utils)
 // ==========================================
 //
 // Author: zhijun2003 <zhijun2003@foxmail.com>
 // ==========================================
 
 import { defineStore } from 'pinia'
+import { ref, computed, readonly } from 'vue'
 
 export interface User {
   userId: string
@@ -23,25 +24,8 @@ export interface User {
 export const useUserStore = defineStore('user', () => {
   // 状态
   const user = ref<User | null>(null)
-  const token = ref<string | null>(null)
-  const isLoggedIn = computed(() => !!token.value && !!user.value)
+  const isLoggedIn = computed(() => !!user.value)
   const isAdmin = computed(() => user.value?.role === 'ADMIN')
-
-  // 从 localStorage 初始化
-  if (import.meta.client) {
-    const savedToken = localStorage.getItem('auth_token')
-    const savedUser = localStorage.getItem('user_info')
-    if (savedToken) {
-      token.value = savedToken
-    }
-    if (savedUser) {
-      try {
-        user.value = JSON.parse(savedUser)
-      } catch (e) {
-        console.error('Failed to parse saved user info:', e)
-      }
-    }
-  }
 
   // 登录
   async function login(credentials: {
@@ -52,20 +36,24 @@ export const useUserStore = defineStore('user', () => {
       const { $fetch } = useNuxtApp()
       const response = await $fetch<{
         success: boolean
-        data: { user: User; token: string }
+        data: { user: any }
       }>('/api/auth/login', {
         method: 'POST',
         body: credentials,
       })
 
       if (response.success) {
-        user.value = response.data.user
-        token.value = response.data.token
-
-        // 保存到 localStorage
-        if (import.meta.client) {
-          localStorage.setItem('auth_token', response.data.token)
-          localStorage.setItem('user_info', JSON.stringify(response.data.user))
+        user.value = {
+          userId: response.data.user.id,
+          username: response.data.user.username,
+          email: response.data.user.email,
+          phone: response.data.user.phone,
+          displayName: response.data.user.displayName,
+          avatar: response.data.user.avatar,
+          role: response.data.user.role,
+          status: response.data.user.status,
+          balance: response.data.user.balance,
+          freeQuota: response.data.user.freeQuota,
         }
         return true
       }
@@ -82,25 +70,30 @@ export const useUserStore = defineStore('user', () => {
     email?: string
     phone?: string
     password: string
+    displayName?: string
   }): Promise<boolean> {
     try {
       const { $fetch } = useNuxtApp()
       const response = await $fetch<{
         success: boolean
-        data: { user: User; token: string }
+        data: { user: any }
       }>('/api/auth/register', {
         method: 'POST',
         body: data,
       })
 
       if (response.success) {
-        user.value = response.data.user
-        token.value = response.data.token
-
-        // 保存到 localStorage
-        if (import.meta.client) {
-          localStorage.setItem('auth_token', response.data.token)
-          localStorage.setItem('user_info', JSON.stringify(response.data.user))
+        user.value = {
+          userId: response.data.user.id,
+          username: response.data.user.username,
+          email: response.data.user.email,
+          phone: response.data.user.phone,
+          displayName: response.data.user.displayName,
+          avatar: response.data.user.avatar,
+          role: response.data.user.role,
+          status: response.data.user.status,
+          balance: response.data.user.balance,
+          freeQuota: response.data.user.freeQuota,
         }
         return true
       }
@@ -112,50 +105,48 @@ export const useUserStore = defineStore('user', () => {
   }
 
   // 登出
-  function logout() {
-    user.value = null
-    token.value = null
-
-    // 清除 localStorage
-    if (import.meta.client) {
-      localStorage.removeItem('auth_token')
-      localStorage.removeItem('user_info')
+  async function logout() {
+    try {
+      const { $fetch } = useNuxtApp()
+      await $fetch('/api/auth/logout', {
+        method: 'POST',
+      })
+    } catch (error) {
+      console.error('Logout failed:', error)
+    } finally {
+      user.value = null
     }
   }
 
   // 获取当前用户信息
   async function fetchUserInfo(): Promise<boolean> {
-    if (!token.value) return false
-
     try {
       const { $fetch } = useNuxtApp()
       const response = await $fetch<{
         success: boolean
-        data: User
-      }>('/api/user/me', {
-        headers: {
-          Authorization: `Bearer ${token.value}`,
-        },
-      })
+        data: any
+      }>('/api/user/me')
 
       if (response.success) {
-        user.value = response.data
-        // 更新 localStorage
-        if (import.meta.client) {
-          localStorage.setItem('user_info', JSON.stringify(response.data))
+        user.value = {
+          userId: response.data.id,
+          username: response.data.username,
+          email: response.data.email,
+          phone: response.data.phone,
+          displayName: response.data.displayName,
+          avatar: response.data.avatar,
+          role: response.data.role,
+          status: response.data.status,
+          balance: response.data.balance,
+          freeQuota: response.data.freeQuota,
         }
         return true
       }
       return false
     } catch (error) {
       console.error('Fetch user info failed:', error)
-      // 如果是认证错误，清除登录状态
-      if (error && typeof error === 'object' && 'statusCode' in error) {
-        const statusCode = (error as { statusCode?: number }).statusCode
-        if (statusCode === 401) {
-          logout()
-        }
-      }
+      // 如果获取失败，清空用户状态
+      user.value = null
       return false
     }
   }
@@ -164,16 +155,11 @@ export const useUserStore = defineStore('user', () => {
   function updateUser(newUserData: Partial<User>) {
     if (user.value) {
       user.value = { ...user.value, ...newUserData }
-      // 更新 localStorage
-      if (import.meta.client) {
-        localStorage.setItem('user_info', JSON.stringify(user.value))
-      }
     }
   }
 
   return {
     user: readonly(user),
-    token: readonly(token),
     isLoggedIn,
     isAdmin,
     login,

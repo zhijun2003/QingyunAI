@@ -8,28 +8,67 @@
         </NButton>
       </div>
 
-      <div class="flex-1 overflow-y-auto p-2">
-        <div
-          v-for="conv in conversations"
-          :key="conv.id"
-          class="p-3 mb-2 rounded cursor-pointer hover:bg-gray-50 transition-colors"
-          :class="{ 'bg-blue-50': currentConversationId === conv.id }"
-          @click="handleSelectConversation(conv.id)"
-        >
-          <div class="font-medium text-sm truncate">{{ conv.title }}</div>
-          <div class="text-xs text-gray-500 mt-1">
-            {{ formatDate(conv.updatedAt) }}
-          </div>
-        </div>
+      <!-- 搜索框 -->
+      <div class="p-4 border-b border-gray-200">
+        <NInput
+          v-model:value="searchQuery"
+          placeholder="搜索对话..."
+          clearable
+          size="small"
+        />
+      </div>
 
-        <div v-if="conversations.length === 0" class="text-center text-gray-400 mt-8">
-          暂无对话历史
+      <div class="flex-1 overflow-y-auto p-2">
+        <!-- 按时间分组显示对话 -->
+        <template v-for="group in groupedConversations" :key="group.label">
+          <div v-if="group.conversations.length > 0">
+            <div class="px-3 py-2 text-xs text-gray-500 font-semibold">
+              {{ group.label }}
+            </div>
+            <div
+              v-for="conv in group.conversations"
+              :key="conv.id"
+              class="p-3 mb-2 rounded cursor-pointer hover:bg-gray-50 transition-colors"
+              :class="{ 'bg-blue-50': currentConversationId === conv.id }"
+              @click="handleSelectConversation(conv.id)"
+            >
+              <div class="font-medium text-sm truncate">{{ conv.title }}</div>
+              <div class="text-xs text-gray-500 mt-1">
+                {{ formatDate(conv.updatedAt) }}
+              </div>
+            </div>
+          </div>
+        </template>
+
+        <div v-if="filteredConversations.length === 0" class="text-center text-gray-400 mt-8">
+          {{ searchQuery ? '未找到匹配的对话' : '暂无对话历史' }}
         </div>
       </div>
     </aside>
 
     <!-- 对话区域 -->
     <main class="flex-1 flex flex-col bg-gray-50">
+      <!-- 工具栏 -->
+      <div
+        v-if="messages.length > 0"
+        class="border-b border-gray-200 bg-white px-4 py-2 flex items-center justify-between"
+      >
+        <div class="text-sm text-gray-600">
+          {{ messages.length }} 条消息
+        </div>
+        <div class="flex items-center space-x-2">
+          <NButton size="small" @click="handleCopyConversation">
+            复制对话
+          </NButton>
+          <NButton size="small" @click="handleExportMarkdown">
+            导出 Markdown
+          </NButton>
+          <NButton size="small" @click="handleExportImage">
+            导出图片
+          </NButton>
+        </div>
+      </div>
+
       <div class="flex-1 overflow-y-auto p-4">
         <div v-if="messages.length === 0" class="flex items-center justify-center h-full">
           <div class="text-center text-gray-400">
@@ -49,11 +88,16 @@
               class="max-w-[80%] px-4 py-3 rounded-lg"
               :class="
                 msg.role === 'user'
-                  ? 'bg-blue-500 text-white'
+                  ? 'bg-blue-500 text-white user-message'
                   : 'bg-white shadow-sm border border-gray-200'
               "
             >
-              <div class="whitespace-pre-wrap break-words">{{ msg.content }}</div>
+              <!-- 用户消息使用简单文本，AI消息使用 Markdown 渲染 -->
+              <div v-if="msg.role === 'user'" class="whitespace-pre-wrap break-words">
+                {{ msg.content }}
+              </div>
+              <MessageContent v-else :content="msg.content" />
+
               <div
                 class="text-xs mt-2 opacity-70"
                 :class="msg.role === 'user' ? 'text-blue-100' : 'text-gray-400'"
@@ -144,6 +188,7 @@
 <script setup lang="ts">
 import { useMessage } from 'naive-ui'
 import { useUserStore } from '~/stores/user'
+import html2canvas from 'html2canvas'
 
 definePageMeta({
   middleware: 'auth',
@@ -162,6 +207,7 @@ const isLoading = ref(false)
 const showModelSelector = ref(false)
 const selectedModel = ref<any>(null)
 const availableModels = ref<any[]>([])
+const searchQuery = ref('')
 
 // 格式化日期
 function formatDate(date: string): string {
@@ -180,6 +226,51 @@ function formatDate(date: string): string {
     return d.toLocaleDateString('zh-CN')
   }
 }
+
+// 搜索过滤对话
+const filteredConversations = computed(() => {
+  if (!searchQuery.value.trim()) {
+    return conversations.value
+  }
+  const query = searchQuery.value.toLowerCase()
+  return conversations.value.filter((conv) =>
+    conv.title.toLowerCase().includes(query)
+  )
+})
+
+// 按时间分组对话
+const groupedConversations = computed(() => {
+  const now = new Date()
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+  const yesterday = new Date(today.getTime() - 24 * 60 * 60 * 1000)
+  const weekAgo = new Date(today.getTime() - 7 * 24 * 60 * 60 * 1000)
+  const monthAgo = new Date(today.getTime() - 30 * 24 * 60 * 60 * 1000)
+
+  const groups = {
+    today: { label: '今天', conversations: [] as any[] },
+    yesterday: { label: '昨天', conversations: [] as any[] },
+    thisWeek: { label: '最近 7 天', conversations: [] as any[] },
+    thisMonth: { label: '最近 30 天', conversations: [] as any[] },
+    older: { label: '更早', conversations: [] as any[] },
+  }
+
+  filteredConversations.value.forEach((conv) => {
+    const convDate = new Date(conv.updatedAt)
+    if (convDate >= today) {
+      groups.today.conversations.push(conv)
+    } else if (convDate >= yesterday) {
+      groups.yesterday.conversations.push(conv)
+    } else if (convDate >= weekAgo) {
+      groups.thisWeek.conversations.push(conv)
+    } else if (convDate >= monthAgo) {
+      groups.thisMonth.conversations.push(conv)
+    } else {
+      groups.older.conversations.push(conv)
+    }
+  })
+
+  return Object.values(groups)
+})
 
 // 加载对话列表
 async function loadConversations() {
@@ -280,8 +371,139 @@ async function handleSend() {
   }
 }
 
+// 复制对话内容
+async function handleCopyConversation() {
+  try {
+    const text = messages.value
+      .map((msg) => {
+        const role = msg.role === 'user' ? '用户' : 'AI'
+        return `${role}:\n${msg.content}\n`
+      })
+      .join('\n---\n\n')
+
+    await navigator.clipboard.writeText(text)
+    message.success('对话内容已复制到剪贴板')
+  } catch (err) {
+    console.error('Copy failed:', err)
+    message.error('复制失败')
+  }
+}
+
+// 导出 Markdown
+function handleExportMarkdown() {
+  try {
+    const currentConv = conversations.value.find(
+      (c) => c.id === currentConversationId.value
+    )
+    const title = currentConv?.title || '对话记录'
+
+    let markdown = `# ${title}\n\n`
+    markdown += `> 导出时间: ${new Date().toLocaleString('zh-CN')}\n\n`
+    markdown += `---\n\n`
+
+    messages.value.forEach((msg) => {
+      const role = msg.role === 'user' ? '**用户**' : '**AI**'
+      markdown += `### ${role}\n\n`
+      markdown += `${msg.content}\n\n`
+
+      if (msg.inputTokens || msg.outputTokens || msg.cost) {
+        markdown += `<details>\n<summary>统计信息</summary>\n\n`
+        if (msg.inputTokens || msg.outputTokens) {
+          markdown += `- Tokens: ${msg.inputTokens + msg.outputTokens}\n`
+        }
+        if (msg.cost) {
+          markdown += `- 费用: ¥${(msg.cost / 100).toFixed(4)}\n`
+        }
+        markdown += `\n</details>\n\n`
+      }
+
+      markdown += `---\n\n`
+    })
+
+    // 创建下载链接
+    const blob = new Blob([markdown], { type: 'text/markdown;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `${title}-${new Date().getTime()}.md`
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    URL.revokeObjectURL(url)
+
+    message.success('Markdown 文件已导出')
+  } catch (err) {
+    console.error('Export failed:', err)
+    message.error('导出失败')
+  }
+}
+
+// 导出图片
+async function handleExportImage() {
+  try {
+    message.info('正在生成图片，请稍候...')
+
+    // 找到消息容器
+    const messagesContainer = document.querySelector('.max-w-4xl.mx-auto.space-y-4')
+    if (!messagesContainer) {
+      message.error('未找到对话内容')
+      return
+    }
+
+    // 使用 html2canvas 截图
+    const canvas = await html2canvas(messagesContainer as HTMLElement, {
+      backgroundColor: '#f9fafb',
+      scale: 2, // 提高清晰度
+      logging: false,
+    })
+
+    // 转换为图片并下载
+    canvas.toBlob((blob) => {
+      if (!blob) {
+        message.error('图片生成失败')
+        return
+      }
+
+      const currentConv = conversations.value.find(
+        (c) => c.id === currentConversationId.value
+      )
+      const title = currentConv?.title || '对话记录'
+
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `${title}-${new Date().getTime()}.png`
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(url)
+
+      message.success('图片已导出')
+    })
+  } catch (err) {
+    console.error('Export image failed:', err)
+    message.error('图片导出失败')
+  }
+}
+
 // 初始化
 onMounted(async () => {
   await Promise.all([loadConversations(), loadModels()])
 })
 </script>
+
+<style scoped>
+/* 用户消息中的 Markdown 样式需要白色文本 */
+:deep(.user-message .markdown-body) {
+  color: white;
+}
+
+:deep(.user-message .markdown-body a) {
+  color: #a8d8ff;
+}
+
+:deep(.user-message .markdown-body code) {
+  background-color: rgba(255, 255, 255, 0.2);
+  color: white;
+}
+</style>

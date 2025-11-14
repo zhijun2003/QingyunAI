@@ -39,6 +39,8 @@ temp/
 *.cert
 *.p12
 *.pfx
+*_id_ed25519
+*_id_rsa
 
 # =========================================
 # 日志文件
@@ -73,7 +75,6 @@ coverage/
 .DS_Store
 Thumbs.db
 .claude
-.develop
 .husky
 
 
@@ -106,3 +107,4 @@ out/
 miniprogram/dist/
 miniprogram/.tea/
 
+.develop/

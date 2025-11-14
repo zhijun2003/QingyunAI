@@ -12,13 +12,14 @@
 import { prisma } from '@qingyun/database'
 import { getCurrentUser } from '#imports'
 import { aiChatService } from '../../services/ai-chat.service'
+import { ragChatService } from '../../services/rag-chat.service'
 
 export default defineEventHandler(async (event) => {
   try {
     const currentUser = getCurrentUser(event)
     const body = await readBody(event)
 
-    const { conversationId, modelId, content, temperature, maxTokens } = body
+    const { conversationId, modelId, content, temperature, maxTokens, knowledgeBaseIds } = body
 
     if (!conversationId || !modelId || !content) {
       throw createError({
@@ -57,6 +58,36 @@ export default defineEventHandler(async (event) => {
       take: 20 // 只取最近 20 条消息
     })
 
+    // RAG 增强（如果提供了知识库ID）
+    let enhancedContent = content
+    let ragSources: any[] = []
+
+    if (knowledgeBaseIds && Array.isArray(knowledgeBaseIds) && knowledgeBaseIds.length > 0) {
+      // 验证用户是否有权限访问这些知识库
+      const knowledgeBases = await prisma.knowledgeBase.findMany({
+        where: {
+          id: { in: knowledgeBaseIds },
+          userId: currentUser.userId,
+          isActive: true,
+        },
+      })
+
+      const validKbIds = knowledgeBases.map((kb) => kb.id)
+
+      if (validKbIds.length > 0) {
+        const ragResult = await ragChatService.enhanceQuery(content, {
+          knowledgeBaseIds: validKbIds,
+          topK: 5,
+          threshold: 0.7,
+        })
+
+        if (ragResult.contextUsed) {
+          enhancedContent = ragResult.enhancedPrompt
+          ragSources = ragChatService.formatSources(ragResult.sources)
+        }
+      }
+    }
+
     // 构建消息列表
     const messages = [
       ...history.map(msg => ({
@@ -65,7 +96,7 @@ export default defineEventHandler(async (event) => {
       })),
       {
         role: 'user' as const,
-        content
+        content: enhancedContent
       }
     ]
 
@@ -82,6 +113,14 @@ export default defineEventHandler(async (event) => {
     // 异步处理流式响应
     ;(async () => {
       try {
+        // 如果使用了 RAG，先发送引用来源
+        if (ragSources.length > 0) {
+          await stream.push(JSON.stringify({
+            type: 'sources',
+            data: ragSources
+          }))
+        }
+
         for await (const chunk of aiChatService.chatStream({
           userId: currentUser.userId,
           conversationId,

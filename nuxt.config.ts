@@ -14,9 +14,6 @@ export default defineNuxtConfig({
   alias: {
     '@qingyun/database': resolve(__dirname, './packages/database/src'),
     '@qingyun/ai-runtime': resolve(__dirname, './packages/ai-runtime/src'),
-    '@qingyun/billing': resolve(__dirname, './packages/billing/src'),
-    '@qingyun/constants': resolve(__dirname, './packages/constants/src'),
-    '@qingyun/types': resolve(__dirname, './packages/types/src'),
   },
 
   // TypeScript 配置（暂时禁用 typeCheck，避免开发时卡顿）
@@ -26,7 +23,7 @@ export default defineNuxtConfig({
   },
 
   // 模块
-  modules: ['@pinia/nuxt', '@vueuse/nuxt'],
+  modules: ['@pinia/nuxt', '@vueuse/nuxt', 'nuxt-auth-utils'],
 
   // 实验性功能
   experimental: {

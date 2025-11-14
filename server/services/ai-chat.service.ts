@@ -142,6 +142,13 @@ export class AIChatService {
         }
       })
 
+      // 获取更新后的用户余额
+      const updatedUser = await prisma.user.findUnique({
+        where: { id: userId },
+        select: { balance: true, freeQuota: true }
+      })
+      const balanceBefore = updatedUser!.balance + updatedUser!.freeQuota
+
       // 扣除费用（优先扣除免费额度）
       if (user.freeQuota >= cost) {
         await prisma.user.update({
@@ -166,6 +173,39 @@ export class AIChatService {
           }
         })
       }
+
+      // 计算费用组成
+      const inputCost = tokenCounter.calculateCost(inputTokens, 0, model.inputPrice || 0, 0)
+      const outputCost = tokenCounter.calculateCost(0, outputTokens, 0, model.outputPrice || 0)
+
+      // 创建用量日志
+      await prisma.usageLog.create({
+        data: {
+          userId,
+          modelId,
+          inputTokens,
+          outputTokens,
+          totalTokens: inputTokens + outputTokens,
+          inputCost,
+          outputCost,
+          totalCost: cost,
+          conversationId,
+          messageId: assistantMessage.id
+        }
+      })
+
+      // 创建交易记录
+      await prisma.transaction.create({
+        data: {
+          userId,
+          type: 'CONSUMPTION',
+          amount: -cost,
+          balanceBefore,
+          balanceAfter: balanceBefore - cost,
+          description: `AI对话消费 - ${model.displayName}`,
+          relatedId: assistantMessage.id
+        }
+      })
 
       // 更新对话最后消息时间
       await prisma.conversation.update({
@@ -309,6 +349,13 @@ export class AIChatService {
         }
       })
 
+      // 获取更新前的用户余额
+      const updatedUser = await prisma.user.findUnique({
+        where: { id: userId },
+        select: { balance: true, freeQuota: true }
+      })
+      const balanceBefore = updatedUser!.balance + updatedUser!.freeQuota
+
       // 扣除费用
       if (user.freeQuota >= cost) {
         await prisma.user.update({
@@ -333,6 +380,39 @@ export class AIChatService {
           }
         })
       }
+
+      // 计算费用组成
+      const inputCost = tokenCounter.calculateCost(inputTokens, 0, model.inputPrice || 0, 0)
+      const outputCost = tokenCounter.calculateCost(0, outputTokens, 0, model.outputPrice || 0)
+
+      // 创建用量日志
+      await prisma.usageLog.create({
+        data: {
+          userId,
+          modelId,
+          inputTokens,
+          outputTokens,
+          totalTokens: inputTokens + outputTokens,
+          inputCost,
+          outputCost,
+          totalCost: cost,
+          conversationId,
+          messageId: assistantMessage.id
+        }
+      })
+
+      // 创建交易记录
+      await prisma.transaction.create({
+        data: {
+          userId,
+          type: 'CONSUMPTION',
+          amount: -cost,
+          balanceBefore,
+          balanceAfter: balanceBefore - cost,
+          description: `AI对话消费 - ${model.displayName}`,
+          relatedId: assistantMessage.id
+        }
+      })
 
       // 更新对话
       await prisma.conversation.update({

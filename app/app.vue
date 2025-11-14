@@ -1,23 +1,13 @@
 <template>
-  <NConfigProvider :theme-overrides="themeOverrides">
-    <NLoadingBarProvider>
-      <NDialogProvider>
-        <NNotificationProvider>
-          <NMessageProvider>
-            <NuxtPage />
-          </NMessageProvider>
-        </NNotificationProvider>
-      </NDialogProvider>
-    </NLoadingBarProvider>
-  </NConfigProvider>
+  <NuxtLayout>
+    <NuxtPage />
+  </NuxtLayout>
 </template>
 
-<script setup lang="ts">
-const themeOverrides = {
-  common: {
-    primaryColor: '#18a058',
-    primaryColorHover: '#36ad6a',
-    primaryColorPressed: '#0c7a43',
-  },
-}
-</script>
+<style>
+/* 导入 highlight.js 代码高亮主题（GitHub 风格） */
+@import 'highlight.js/styles/github.css';
+
+/* 导入 KaTeX 数学公式样式 */
+@import 'katex/dist/katex.min.css';
+</style>

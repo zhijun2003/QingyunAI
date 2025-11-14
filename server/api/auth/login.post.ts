@@ -1,5 +1,5 @@
 // ==========================================
-// 用户登录 API
+// 用户登录 API (使用 nuxt-auth-utils)
 // ==========================================
 //
 // POST /api/auth/login
@@ -10,15 +10,15 @@
 // ==========================================
 
 import { prisma } from '@qingyun/database'
-import { verifyPassword, generateToken } from '#imports'
+import { verifyPassword } from '#imports'
 
 export default defineEventHandler(async (event) => {
   try {
     const body = await readBody(event)
 
-    const { account, password } = body
+    const { login, password } = body
 
-    if (!account || !password) {
+    if (!login || !password) {
       throw createError({
         statusCode: 400,
         message: '请提供账号和密码'
@@ -29,9 +29,9 @@ export default defineEventHandler(async (event) => {
     const user = await prisma.user.findFirst({
       where: {
         OR: [
-          { username: account },
-          { email: account },
-          { phone: account }
+          { username: login },
+          { email: login },
+          { phone: login }
         ]
       }
     })
@@ -74,8 +74,21 @@ export default defineEventHandler(async (event) => {
       data: { lastLoginAt: new Date() }
     })
 
-    // 生成 Token
-    const token = generateToken(user.id, user.role)
+    // 使用 nuxt-auth-utils 设置用户会话
+    await setUserSession(event, {
+      user: {
+        userId: user.id,
+        username: user.username,
+        email: user.email,
+        phone: user.phone,
+        displayName: user.displayName,
+        avatar: user.avatar,
+        role: user.role,
+        status: user.status,
+        balance: user.balance.toNumber(),
+        freeQuota: user.freeQuota.toNumber(),
+      }
+    })
 
     // 返回用户信息（不含密码）
     const { password: _, ...userWithoutPassword } = user
@@ -84,8 +97,11 @@ export default defineEventHandler(async (event) => {
       success: true,
       message: '登录成功',
       data: {
-        user: userWithoutPassword,
-        token
+        user: {
+          ...userWithoutPassword,
+          balance: user.balance.toNumber(),
+          freeQuota: user.freeQuota.toNumber(),
+        }
       }
     }
   } catch (error: any) {

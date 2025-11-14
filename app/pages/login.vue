@@ -118,7 +118,7 @@ import { FormInst, FormRules, useMessage } from 'naive-ui'
 import { useUserStore } from '~/stores/user'
 
 definePageMeta({
-  layout: false,
+  layout: 'login',
 })
 
 const message = useMessage()
